@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Case Timeline</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #e2e4e9;
+    --text: #1f2430;
+    --muted: #8a8f99;
+    --accent: #3b5bdb;
+    --pending: #f0a94a;
+    --pending-bg: #fef3e2;
+    --pending-border: #f0c27b;
+    --completed: #2f9e5c;
+    --completed-bg: #e7f7ee;
+    --completed-border: #a3ddbb;
+    --today-bg: #eef1fd;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  button.nav-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  button.nav-btn:hover { background: #f0f1f4; }
+  button.today-btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.today-btn:hover { background: #f0f1f4; }
+
+  #timeline-wrap {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  #timeline {
+    height: 100%;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    padding: 16px 16px 16px 16px;
+    gap: 12px;
+  }
+  #timeline::-webkit-scrollbar { height: 10px; }
+  #timeline::-webkit-scrollbar-thumb { background: #d3d6dd; border-radius: 6px; }
+  #timeline::-webkit-scrollbar-track { background: transparent; }
+
+  .week-col {
+    scroll-snap-align: start;
+    flex: 0 0 220px;
+    width: 220px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .week-col.is-today {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .week-col-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .week-col.is-today .week-col-header {
+    background: var(--today-bg);
+  }
+  .week-date {
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .week-today-tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .week-summary {
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .week-cases {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 60px;
+  }
+  .case-card {
+    position: relative;
+    border-radius: 9px;
+    padding: 8px 26px 8px 10px;
+    cursor: pointer;
+    border: 1px solid var(--pending-border);
+    background: var(--pending-bg);
+    transition: transform 0.06s ease;
+  }
+  .case-card:active { transform: scale(0.98); }
+  .case-card.completed {
+    border-color: var(--completed-border);
+    background: var(--completed-bg);
+  }
+  .case-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .case-fee {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .case-card.completed .case-fee { color: #4c8a67; }
+  .case-status-dot {
+    position: absolute;
+    top: 9px;
+    left: -1px;
+    width: 3px;
+    height: calc(100% - 8px);
+    border-radius: 3px;
+    background: var(--pending);
+  }
+  .case-card.completed .case-status-dot { background: var(--completed); }
+  .case-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .case-card:hover .case-delete { display: flex; }
+  .case-delete:hover { background: rgba(0,0,0,0.08); color: #c0392b; }
+
+  .empty-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: center;
+    padding: 10px 4px;
+  }
+
+  .add-case-area {
+    border-top: 1px solid var(--border);
+    padding: 8px;
+  }
+  .add-case-btn {
+    width: 100%;
+    padding: 6px;
+    border-radius: 8px;
+    border: 1px dashed #c7cad2;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .add-case-btn:hover { background: #f5f6f8; color: var(--text); }
+
+  .add-case-form {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .add-case-form.open { display: flex; }
+  .add-case-form input {
+    font-size: 12.5px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    outline: none;
+    width: 100%;
+  }
+  .add-case-form input:focus { border-color: var(--accent); }
+  .add-case-form-btns {
+    display: flex;
+    gap: 6px;
+  }
+  .add-case-form-btns button {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 0;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    background: var(--panel);
+  }
+  .add-case-form-btns button.save {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .add-case-form-btns button.cancel:hover { background: #f0f1f4; }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .legend-swatch.pending { background: var(--pending); }
+  .legend-swatch.completed { background: var(--completed); }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 15px; }
+    .legend { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Weekly Case Timeline</h1>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch pending"></span>Pending</div>
+    <div class="legend-item"><span class="legend-swatch completed"></span>Completed</div>
+  </div>
+  <div class="header-controls">
+    <button class="nav-btn" id="prevBtn" title="Previous week" aria-label="Previous week">&#8249;</button>
+    <button class="today-btn" id="todayBtn">This Week</button>
+    <button class="nav-btn" id="nextBtn" title="Next week" aria-label="Next week">&#8250;</button>
+  </div>
+</header>
+
+<div id="timeline-wrap">
+  <div id="timeline"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "wct-cases-v1";
+  var ANCHOR_DOW = 5; // Friday - matches the firm's weekly closing day
+  var COL_WIDTH = 220;
+  var COL_GAP = 12;
+  var STEP = COL_WIDTH + COL_GAP;
+  var INITIAL_BACK = 10;
+  var INITIAL_FWD = 14;
+  var LOAD_MORE = 8;
+
+  var timeline = document.getElementById("timeline");
+  var prevBtn = document.getElementById("prevBtn");
+  var nextBtn = document.getElementById("nextBtn");
+  var todayBtn = document.getElementById("todayBtn");
+
+  var data = loadData();
+  var weeks = []; // array of Date objects (week anchor dates), ascending
+  var todayWeekKey = null;
+
+  function loadData() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveData() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function dateKey(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+
+  function formatLabel(d) {
+    return (d.getMonth() + 1) + "/" + d.getDate();
+  }
+
+  function addDays(d, n) {
+    var r = new Date(d);
+    r.setDate(r.getDate() + n);
+    return r;
+  }
+
+  function anchorOnOrBefore(d) {
+    var r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var diff = (r.getDay() - ANCHOR_DOW + 7) % 7;
+    r.setDate(r.getDate() - diff);
+    return r;
+  }
+
+  function currency(n) {
+    var num = Number(n);
+    if (isNaN(num)) num = 0;
+    return "$" + num.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  }
+
+  function uid() {
+    return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function initWeeks() {
+    var today = new Date();
+    var anchor = anchorOnOrBefore(today);
+    todayWeekKey = dateKey(anchor);
+    weeks = [];
+    for (var i = -INITIAL_BACK; i <= INITIAL_FWD; i++) {
+      weeks.push(addDays(anchor, i * 7));
+    }
+  }
+
+  function buildCaseCard(week, caseObj) {
+    var card = document.createElement("div");
+    card.className = "case-card" + (caseObj.status === "completed" ? " completed" : "");
+    card.tabIndex = 0;
+    card.title = "Click to toggle status";
+
+    var dot = document.createElement("div");
+    dot.className = "case-status-dot";
+    card.appendChild(dot);
+
+    var name = document.createElement("div");
+    name.className = "case-name";
+    name.textContent = caseObj.name;
+    card.appendChild(name);
+
+    var fee = document.createElement("div");
+    fee.className = "case-fee";
+    fee.textContent = currency(caseObj.fee);
+    card.appendChild(fee);
+
+    var del = document.createElement("button");
+    del.className = "case-delete";
+    del.type = "button";
+    del.innerHTML = "&times;";
+    del.title = "Delete case";
+    del.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (confirm('Delete "' + caseObj.name + '"?')) {
+        removeCase(week, caseObj.id);
+      }
+    });
+    card.appendChild(del);
+
+    card.addEventListener("click", function () {
+      toggleStatus(week, caseObj.id);
+    });
+
+    return card;
+  }
+
+  function toggleStatus(weekKey, id) {
+    var list = data[weekKey];
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) {
+        list[i].status = list[i].status === "completed" ? "pending" : "completed";
+        break;
+      }
+    }
+    saveData();
+    renderWeekColumn(weekKey);
+  }
+
+  function removeCase(weekKey, id) {
+    var list = data[weekKey];
+    if (!list) return;
+    data[weekKey] = list.filter(function (c) { return c.id !== id; });
+    saveData();
+    renderWeekColumn(weekKey);
+  }
+
+  function addCase(weekKey, name, fee) {
+    if (!data[weekKey]) data[weekKey] = [];
+    data[weekKey].push({ id: uid(), name: name, fee: fee, status: "pending" });
+    saveData();
+    renderWeekColumn(weekKey);
+  }
+
+  function renderWeekColumn(weekKey) {
+    var col = timeline.querySelector('.week-col[data-key="' + weekKey + '"]');
+    if (!col) return;
+
+    var casesWrap = col.querySelector(".week-cases");
+    var summary = col.querySelector(".week-summary");
+    var list = data[weekKey] || [];
+
+    casesWrap.innerHTML = "";
+    if (list.length === 0) {
+      var hint = document.createElement("div");
+      hint.className = "empty-hint";
+      hint.textContent = "No cases yet";
+      casesWrap.appendChild(hint);
+    } else {
+      list.forEach(function (c) {
+        casesWrap.appendChild(buildCaseCard(weekKey, c));
+      });
+    }
+
+    var total = list.reduce(function (s, c) { return s + (Number(c.fee) || 0); }, 0);
+    var done = list.filter(function (c) { return c.status === "completed"; }).length;
+    summary.textContent = list.length
+      ? done + "/" + list.length + " done · " + currency(total)
+      : "—";
+  }
+
+  function buildWeekColumn(weekDate) {
+    var weekKey = dateKey(weekDate);
+    var col = document.createElement("div");
+    col.className = "week-col" + (weekKey === todayWeekKey ? " is-today" : "");
+    col.setAttribute("data-key", weekKey);
+
+    var header = document.createElement("div");
+    header.className = "week-col-header";
+    var dateEl = document.createElement("div");
+    dateEl.className = "week-date";
+    dateEl.textContent = formatLabel(weekDate);
+    if (weekKey === todayWeekKey) {
+      var tag = document.createElement("span");
+      tag.className = "week-today-tag";
+      tag.textContent = "This week";
+      dateEl.appendChild(tag);
+    }
+    header.appendChild(dateEl);
+    var summary = document.createElement("div");
+    summary.className = "week-summary";
+    header.appendChild(summary);
+    col.appendChild(header);
+
+    var casesWrap = document.createElement("div");
+    casesWrap.className = "week-cases";
+    col.appendChild(casesWrap);
+
+    var addArea = document.createElement("div");
+    addArea.className = "add-case-area";
+
+    var addBtn = document.createElement("button");
+    addBtn.className = "add-case-btn";
+    addBtn.type = "button";
+    addBtn.textContent = "+ Add case";
+
+    var form = document.createElement("div");
+    form.className = "add-case-form";
+    var nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.placeholder = "Case name (e.g. 01111-Smith)";
+    var feeInput = document.createElement("input");
+    feeInput.type = "number";
+    feeInput.placeholder = "Fee amount";
+    feeInput.min = "0";
+    feeInput.step = "any";
+
+    var btnRow = document.createElement("div");
+    btnRow.className = "add-case-form-btns";
+    var saveBtn = document.createElement("button");
+    saveBtn.className = "save";
+    saveBtn.type = "button";
+    saveBtn.textContent = "Add";
+    var cancelBtn = document.createElement("button");
+    cancelBtn.className = "cancel";
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "Cancel";
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+
+    form.appendChild(nameInput);
+    form.appendChild(feeInput);
+    form.appendChild(btnRow);
+
+    function closeForm() {
+      form.classList.remove("open");
+      addBtn.style.display = "";
+      nameInput.value = "";
+      feeInput.value = "";
+    }
+    function openForm() {
+      addBtn.style.display = "none";
+      form.classList.add("open");
+      nameInput.focus();
+    }
+    function submitForm() {
+      var name = nameInput.value.trim();
+      var fee = parseFloat(feeInput.value);
+      if (!name) { nameInput.focus(); return; }
+      if (isNaN(fee)) fee = 0;
+      addCase(weekKey, name, fee);
+      closeForm();
+    }
+
+    addBtn.addEventListener("click", openForm);
+    cancelBtn.addEventListener("click", closeForm);
+    saveBtn.addEventListener("click", submitForm);
+    nameInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); feeInput.focus(); }
+      if (e.key === "Escape") closeForm();
+    });
+    feeInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); submitForm(); }
+      if (e.key === "Escape") closeForm();
+    });
+
+    addArea.appendChild(addBtn);
+    addArea.appendChild(form);
+    col.appendChild(addArea);
+
+    return col;
+  }
+
+  function renderAll() {
+    timeline.innerHTML = "";
+    weeks.forEach(function (w) {
+      timeline.appendChild(buildWeekColumn(w));
+    });
+    weeks.forEach(function (w) { renderWeekColumn(dateKey(w)); });
+  }
+
+  function prependWeeks(count) {
+    var first = weeks[0];
+    var newWeeks = [];
+    for (var i = count; i >= 1; i--) {
+      newWeeks.push(addDays(first, -i * 7));
+    }
+    var prevScrollWidth = timeline.scrollWidth;
+    weeks = newWeeks.concat(weeks);
+    var frag = document.createDocumentFragment();
+    newWeeks.forEach(function (w) { frag.appendChild(buildWeekColumn(w)); });
+    timeline.insertBefore(frag, timeline.firstChild);
+    newWeeks.forEach(function (w) { renderWeekColumn(dateKey(w)); });
+    var added = timeline.scrollWidth - prevScrollWidth;
+    timeline.scrollLeft += added;
+  }
+
+  function appendWeeks(count) {
+    var last = weeks[weeks.length - 1];
+    var newWeeks = [];
+    for (var i = 1; i <= count; i++) {
+      newWeeks.push(addDays(last, i * 7));
+    }
+    weeks = weeks.concat(newWeeks);
+    var frag = document.createDocumentFragment();
+    newWeeks.forEach(function (w) { frag.appendChild(buildWeekColumn(w)); });
+    timeline.appendChild(frag);
+    newWeeks.forEach(function (w) { renderWeekColumn(dateKey(w)); });
+  }
+
+  function checkEdges() {
+    var threshold = STEP * 3;
+    if (timeline.scrollLeft < threshold) {
+      prependWeeks(LOAD_MORE);
+    } else if (timeline.scrollWidth - timeline.scrollLeft - timeline.clientWidth < threshold) {
+      appendWeeks(LOAD_MORE);
+    }
+  }
+
+  function scrollToTodayColumn(smooth) {
+    var col = timeline.querySelector('.week-col[data-key="' + todayWeekKey + '"]');
+    if (!col) return;
+    var target = col.offsetLeft - (timeline.clientWidth - col.clientWidth) / 2;
+    timeline.scrollTo({ left: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+  }
+
+  prevBtn.addEventListener("click", function () {
+    timeline.scrollBy({ left: -STEP, behavior: "smooth" });
+  });
+  nextBtn.addEventListener("click", function () {
+    timeline.scrollBy({ left: STEP, behavior: "smooth" });
+  });
+  todayBtn.addEventListener("click", function () {
+    scrollToTodayColumn(true);
+  });
+
+  var scrollTimer = null;
+  timeline.addEventListener("scroll", function () {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(checkEdges, 120);
+  });
+
+  initWeeks();
+  renderAll();
+  requestAnimationFrame(function () {
+    scrollToTodayColumn(false);
+  });
+})();
+</script>
+</body>
+</html>
