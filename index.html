@@ -103,8 +103,7 @@
     align-items: center;
     overflow-x: auto;
     overflow-y: hidden;
-    scroll-snap-type: x mandatory;
-    scroll-behavior: smooth;
+    overflow-anchor: none;
     padding: 16px 24px;
     gap: 20px;
   }
@@ -113,7 +112,6 @@
   #timeline::-webkit-scrollbar-track { background: transparent; }
 
   .week-col {
-    scroll-snap-align: start;
     flex: 0 0 300px;
     width: 300px;
     height: 340px;
@@ -127,6 +125,11 @@
   .week-col.is-today {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
+  }
+  .week-col.drag-over {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+    background: var(--today-bg);
   }
   .week-col-header {
     padding: 10px 12px 8px;
@@ -162,10 +165,10 @@
     position: relative;
     border-radius: 8px;
     padding: 6px 10px;
-    cursor: pointer;
+    cursor: grab;
     border: 1px solid var(--pending-border);
     background: var(--pending-bg);
-    transition: transform 0.06s ease;
+    transition: transform 0.06s ease, opacity 0.1s ease;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -175,6 +178,10 @@
   .case-card.completed {
     border-color: var(--completed-border);
     background: var(--completed-bg);
+  }
+  .case-card.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
   }
   .case-content {
     flex: 1;
@@ -418,6 +425,7 @@
   var data = loadData();
   var weeks = []; // array of Date objects (week anchor dates), ascending
   var todayWeekKey = null;
+  var dragged = { weekKey: null, id: null };
 
   function loadData() {
     try {
@@ -492,7 +500,8 @@
     var card = document.createElement("div");
     card.className = "case-card" + (caseObj.status === "completed" ? " completed" : "");
     card.tabIndex = 0;
-    card.title = "Click to toggle status · hover for edit/delete";
+    card.title = "Click to toggle status · hover for edit/delete · drag to move to another week";
+    card.draggable = true;
 
     var dot = document.createElement("div");
     dot.className = "case-status-dot";
@@ -576,6 +585,7 @@
     function enterEdit(e) {
       e.stopPropagation();
       editing = true;
+      card.draggable = false;
       card.classList.add("editing");
       nameInput.value = caseObj.name;
       feeInput.value = caseObj.fee;
@@ -584,6 +594,7 @@
     }
     function exitEdit() {
       editing = false;
+      card.draggable = true;
       card.classList.remove("editing");
     }
     function submitEdit() {
@@ -623,6 +634,22 @@
     card.addEventListener("click", function () {
       if (editing) return;
       toggleStatus(weekKey, caseObj.id);
+    });
+
+    card.addEventListener("dragstart", function (e) {
+      dragged.weekKey = weekKey;
+      dragged.id = caseObj.id;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", caseObj.id);
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", function () {
+      card.classList.remove("dragging");
+      dragged.weekKey = null;
+      dragged.id = null;
+      timeline.querySelectorAll(".week-col.drag-over").forEach(function (c) {
+        c.classList.remove("drag-over");
+      });
     });
 
     return card;
@@ -668,6 +695,22 @@
     }
     saveData();
     renderWeekColumn(weekKey);
+  }
+
+  function moveCase(fromWeekKey, toWeekKey, id) {
+    var fromList = data[fromWeekKey];
+    if (!fromList) return;
+    var idx = -1;
+    for (var i = 0; i < fromList.length; i++) {
+      if (fromList[i].id === id) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    var item = fromList.splice(idx, 1)[0];
+    if (!data[toWeekKey]) data[toWeekKey] = [];
+    data[toWeekKey].push(item);
+    saveData();
+    renderWeekColumn(fromWeekKey);
+    renderWeekColumn(toWeekKey);
   }
 
   function renderWeekColumn(weekKey) {
@@ -801,6 +844,34 @@
     addArea.appendChild(form);
     col.appendChild(addArea);
 
+    var dragLeaveTimer = null;
+    col.addEventListener("dragenter", function (e) {
+      if (!dragged.id) return;
+      e.preventDefault();
+      if (dragLeaveTimer) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null; }
+      col.classList.add("drag-over");
+    });
+    col.addEventListener("dragover", function (e) {
+      if (!dragged.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    col.addEventListener("dragleave", function () {
+      dragLeaveTimer = setTimeout(function () {
+        col.classList.remove("drag-over");
+      }, 40);
+    });
+    col.addEventListener("drop", function (e) {
+      e.preventDefault();
+      col.classList.remove("drag-over");
+      if (!dragged.id || dragged.weekKey === weekKey) return;
+      var fromWeekKey = dragged.weekKey;
+      var id = dragged.id;
+      dragged.weekKey = null;
+      dragged.id = null;
+      moveCase(fromWeekKey, weekKey, id);
+    });
+
     return col;
   }
 
@@ -853,8 +924,14 @@
   function scrollToTodayColumn(smooth) {
     var col = timeline.querySelector('.week-col[data-key="' + todayWeekKey + '"]');
     if (!col) return;
-    var target = col.offsetLeft - (timeline.clientWidth - col.clientWidth) / 2;
-    timeline.scrollTo({ left: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+    var target = Math.max(0, col.offsetLeft - (timeline.clientWidth - col.clientWidth) / 2);
+    if (smooth) {
+      timeline.scrollTo({ left: target, behavior: "smooth" });
+    } else {
+      // Direct assignment jumps instantly (no CSS scroll-behavior is set, so
+      // there's nothing for scrollTo's "auto" to defer into on initial load).
+      timeline.scrollLeft = target;
+    }
   }
 
   prevBtn.addEventListener("click", function () {
