@@ -110,8 +110,14 @@
   #timeline::-webkit-scrollbar { height: 10px; }
   #timeline::-webkit-scrollbar-thumb { background: #d3d6dd; border-radius: 6px; }
   #timeline::-webkit-scrollbar-track { background: transparent; }
+  #timeline.panning {
+    cursor: grabbing;
+    user-select: none;
+  }
+  #timeline.panning .week-col { cursor: grabbing; }
 
   .week-col {
+    cursor: grab;
     flex: 0 0 300px;
     width: 300px;
     height: 340px;
@@ -897,6 +903,8 @@
     newWeeks.forEach(function (w) { renderWeekColumn(dateKey(w)); });
     var added = timeline.scrollWidth - prevScrollWidth;
     timeline.scrollLeft += added;
+    // Keep an in-progress pan-drag consistent with the newly inserted columns.
+    if (pan.active) pan.startScrollLeft += added;
   }
 
   function appendWeeks(count) {
@@ -927,9 +935,14 @@
   function scrollToTodayColumn(smooth) {
     var col = timeline.querySelector('.week-col[data-key="' + todayWeekKey + '"]');
     if (!col) return;
-    // Let the browser compute the centering itself rather than doing our own
-    // offsetLeft/clientWidth arithmetic, which is more robust to layout timing.
-    col.scrollIntoView({ inline: "center", block: "nearest", behavior: smooth ? "smooth" : "auto" });
+    var target = Math.max(0, col.offsetLeft - (timeline.clientWidth - col.clientWidth) / 2);
+    if (smooth) {
+      timeline.scrollTo({ left: target, behavior: "smooth" });
+    } else {
+      // Direct assignment jumps instantly (no CSS scroll-behavior is set, so
+      // there's nothing for scrollTo's "auto" to defer into on initial load).
+      timeline.scrollLeft = target;
+    }
   }
 
   prevBtn.addEventListener("click", function () {
@@ -940,6 +953,50 @@
   });
   todayBtn.addEventListener("click", function () {
     scrollToTodayColumn(true);
+  });
+
+  function snapToNearestWeek(smooth) {
+    var cols = timeline.querySelectorAll(".week-col");
+    if (!cols.length) return;
+    var anchorCol = cols[0];
+    var anchorTarget = anchorCol.offsetLeft - (timeline.clientWidth - anchorCol.clientWidth) / 2;
+    var maxScroll = Math.max(0, timeline.scrollWidth - timeline.clientWidth);
+    var idx = Math.round((timeline.scrollLeft - anchorTarget) / STEP);
+    var target = Math.min(Math.max(anchorTarget + idx * STEP, 0), maxScroll);
+    timeline.scrollTo({ left: target, behavior: smooth ? "smooth" : "auto" });
+  }
+
+  // Click-and-drag panning: lets a mouse user swipe the timeline by dragging
+  // empty space in a week box, without hijacking clicks on cases, buttons, or
+  // form fields, and without interfering with the case cards' own HTML5
+  // drag-and-drop (which is what actually moves a case between weeks).
+  var pan = { active: false, moved: false, startX: 0, startScrollLeft: 0 };
+
+  function isPanBlockedTarget(el) {
+    if (el && el.nodeType !== 1) el = el.parentElement;
+    if (!el) return true;
+    return !!el.closest(".case-card, button, input, a, .case-edit-form");
+  }
+
+  timeline.addEventListener("mousedown", function (e) {
+    if (e.button !== 0 || isPanBlockedTarget(e.target)) return;
+    pan.active = true;
+    pan.moved = false;
+    pan.startX = e.clientX;
+    pan.startScrollLeft = timeline.scrollLeft;
+    timeline.classList.add("panning");
+  });
+  window.addEventListener("mousemove", function (e) {
+    if (!pan.active) return;
+    var dx = e.clientX - pan.startX;
+    if (Math.abs(dx) > 3) pan.moved = true;
+    timeline.scrollLeft = pan.startScrollLeft - dx;
+  });
+  window.addEventListener("mouseup", function () {
+    if (!pan.active) return;
+    pan.active = false;
+    timeline.classList.remove("panning");
+    if (pan.moved) snapToNearestWeek(true);
   });
 
   var scrollTimer = null;
