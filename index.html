@@ -96,6 +96,7 @@
     justify-content: center;
   }
   #timeline {
+    position: relative;
     max-width: 1020px;
     width: 100%;
     height: 100%;
@@ -413,6 +414,13 @@
 <script>
 (function () {
   "use strict";
+
+  // Stop the browser from trying to restore its own idea of scroll position
+  // on reload/back-forward navigation -- we compute and own the initial
+  // "center on this week" position ourselves below.
+  if ("scrollRestoration" in history) {
+    history.scrollRestoration = "manual";
+  }
 
   var STORAGE_KEY = "wct-cases-v1";
   var ANCHOR_DOW = 5; // Friday - matches the firm's weekly closing day
@@ -922,6 +930,24 @@
 
   var initialScrollDone = false;
 
+  // Defends the initial "centered on this week" position against being
+  // silently nudged out of place by anything else on the page during load
+  // (a focus jump, a late layout shift, a future feature that touches
+  // scrollLeft, etc.) without us having to chase down each cause one at a
+  // time. For a short window after load, any scroll that happens before the
+  // user has deliberately interacted gets treated as unwanted drift and
+  // corrected back; a real user action (arrow/This Week click, starting a
+  // pan-drag, wheel, or touch) immediately calls off the correction so we
+  // never fight genuine navigation.
+  var settling = true;
+  var userInteracted = false;
+  var correctingScroll = false;
+
+  function markUserInteracted() {
+    userInteracted = true;
+    settling = false;
+  }
+
   function checkEdges() {
     if (!initialScrollDone) return;
     var threshold = STEP * 3;
@@ -946,12 +972,15 @@
   }
 
   prevBtn.addEventListener("click", function () {
+    markUserInteracted();
     timeline.scrollBy({ left: -STEP, behavior: "smooth" });
   });
   nextBtn.addEventListener("click", function () {
+    markUserInteracted();
     timeline.scrollBy({ left: STEP, behavior: "smooth" });
   });
   todayBtn.addEventListener("click", function () {
+    markUserInteracted();
     scrollToTodayColumn(true);
   });
 
@@ -980,12 +1009,15 @@
 
   timeline.addEventListener("mousedown", function (e) {
     if (e.button !== 0 || isPanBlockedTarget(e.target)) return;
+    markUserInteracted();
     pan.active = true;
     pan.moved = false;
     pan.startX = e.clientX;
     pan.startScrollLeft = timeline.scrollLeft;
     timeline.classList.add("panning");
   });
+  timeline.addEventListener("wheel", markUserInteracted, { passive: true });
+  timeline.addEventListener("touchstart", markUserInteracted, { passive: true });
   window.addEventListener("mousemove", function (e) {
     if (!pan.active) return;
     var dx = e.clientX - pan.startX;
@@ -1001,6 +1033,11 @@
 
   var scrollTimer = null;
   timeline.addEventListener("scroll", function () {
+    if (settling && !userInteracted && !correctingScroll) {
+      correctingScroll = true;
+      scrollToTodayColumn(false);
+      correctingScroll = false;
+    }
     if (scrollTimer) clearTimeout(scrollTimer);
     scrollTimer = setTimeout(checkEdges, 120);
   });
@@ -1010,6 +1047,16 @@
   requestAnimationFrame(function () {
     scrollToTodayColumn(false);
     initialScrollDone = true;
+    // Re-assert the centered position a few more times over a short settle
+    // window in case something outside this function's control (a browser
+    // quirk, a future feature) nudges scrollLeft shortly after load. Any of
+    // these becomes a no-op the moment the user actually interacts.
+    [50, 150, 400, 900].forEach(function (delay) {
+      setTimeout(function () {
+        if (settling && !userInteracted) scrollToTodayColumn(false);
+      }, delay);
+    });
+    setTimeout(function () { settling = false; }, 1500);
   });
 })();
 </script>
