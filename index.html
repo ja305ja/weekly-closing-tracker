@@ -912,7 +912,10 @@
     newWeeks.forEach(function (w) { renderWeekColumn(dateKey(w)); });
   }
 
+  var initialScrollDone = false;
+
   function checkEdges() {
+    if (!initialScrollDone) return;
     var threshold = STEP * 3;
     if (timeline.scrollLeft < threshold) {
       prependWeeks(LOAD_MORE);
@@ -924,14 +927,9 @@
   function scrollToTodayColumn(smooth) {
     var col = timeline.querySelector('.week-col[data-key="' + todayWeekKey + '"]');
     if (!col) return;
-    var target = Math.max(0, col.offsetLeft - (timeline.clientWidth - col.clientWidth) / 2);
-    if (smooth) {
-      timeline.scrollTo({ left: target, behavior: "smooth" });
-    } else {
-      // Direct assignment jumps instantly (no CSS scroll-behavior is set, so
-      // there's nothing for scrollTo's "auto" to defer into on initial load).
-      timeline.scrollLeft = target;
-    }
+    // Let the browser compute the centering itself rather than doing our own
+    // offsetLeft/clientWidth arithmetic, which is more robust to layout timing.
+    col.scrollIntoView({ inline: "center", block: "nearest", behavior: smooth ? "smooth" : "auto" });
   }
 
   prevBtn.addEventListener("click", function () {
@@ -954,6 +952,7 @@
   renderAll();
   requestAnimationFrame(function () {
     scrollToTodayColumn(false);
+    initialScrollDone = true;
   });
 })();
 </script>
