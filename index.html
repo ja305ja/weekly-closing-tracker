@@ -423,7 +423,6 @@
   }
 
   var STORAGE_KEY = "wct-cases-v1";
-  var ANCHOR_DOW = 5; // Friday - matches the firm's weekly closing day
   var COL_WIDTH = 300;
   var COL_GAP = 20;
   var STEP = COL_WIDTH + COL_GAP;
@@ -460,8 +459,15 @@
     return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
   }
 
-  function formatLabel(d) {
+  function shortDate(d) {
     return (d.getMonth() + 1) + "/" + d.getDate();
+  }
+
+  // Each week is keyed by its Friday date; the label shows the full
+  // Monday-Friday span that Friday belongs to.
+  function formatLabel(fridayDate) {
+    var monday = addDays(fridayDate, -4);
+    return shortDate(monday) + " - " + shortDate(fridayDate);
   }
 
   function addDays(d, n) {
@@ -470,10 +476,13 @@
     return r;
   }
 
-  function anchorOnOrBefore(d) {
+  // Weeks run Monday-Friday. Given any date, returns the Friday of the
+  // Monday-Friday week that date falls in (a Saturday/Sunday belongs to the
+  // week that just ended, i.e. the preceding Friday).
+  function fridayOfWeekContaining(d) {
     var r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    var diff = (r.getDay() - ANCHOR_DOW + 7) % 7;
-    r.setDate(r.getDate() - diff);
+    var daysSinceMonday = (r.getDay() + 6) % 7; // Mon=0, Tue=1, ..., Sun=6
+    r.setDate(r.getDate() - daysSinceMonday + 4);
     return r;
   }
 
@@ -502,7 +511,7 @@
 
   function initWeeks() {
     var today = new Date();
-    var anchor = anchorOnOrBefore(today);
+    var anchor = fridayOfWeekContaining(today);
     todayWeekKey = dateKey(anchor);
     weeks = [];
     for (var i = -INITIAL_BACK; i <= INITIAL_FWD; i++) {
