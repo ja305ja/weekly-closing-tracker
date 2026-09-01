@@ -12,12 +12,18 @@
     --text: #1f2430;
     --muted: #8a8f99;
     --accent: #3b5bdb;
-    --pending: #f0a94a;
-    --pending-bg: #fef3e2;
-    --pending-border: #f0c27b;
+    --stalled: #e5484d;
+    --stalled-bg: #fdecec;
+    --stalled-border: #f3b4b8;
+    --stalled-text: #c5393e;
+    --ontrack: #eab308;
+    --ontrack-bg: #fef9e7;
+    --ontrack-border: #f0dc82;
+    --ontrack-text: #92720c;
     --completed: #2f9e5c;
     --completed-bg: #e7f7ee;
     --completed-border: #a3ddbb;
+    --completed-text: #4c8a67;
     --today-bg: #eef1fd;
   }
   * { box-sizing: border-box; }
@@ -173,8 +179,8 @@
     border-radius: 8px;
     padding: 6px 10px;
     cursor: grab;
-    border: 1px solid var(--pending-border);
-    background: var(--pending-bg);
+    border: 1px solid var(--border);
+    background: var(--panel);
     transition: transform 0.06s ease, opacity 0.1s ease;
     display: flex;
     align-items: center;
@@ -182,7 +188,15 @@
     flex: 0 0 auto;
   }
   .case-card:active { transform: scale(0.98); }
-  .case-card.completed {
+  .case-card.status-stalled {
+    border-color: var(--stalled-border);
+    background: var(--stalled-bg);
+  }
+  .case-card.status-on-track {
+    border-color: var(--ontrack-border);
+    background: var(--ontrack-bg);
+  }
+  .case-card.status-completed {
     border-color: var(--completed-border);
     background: var(--completed-bg);
   }
@@ -221,7 +235,9 @@
     white-space: nowrap;
     transition: opacity 0.08s ease;
   }
-  .case-card.completed .case-fee { color: #4c8a67; }
+  .case-card.status-stalled .case-fee { color: var(--stalled-text); }
+  .case-card.status-on-track .case-fee { color: var(--ontrack-text); }
+  .case-card.status-completed .case-fee { color: var(--completed-text); }
   .case-actions {
     position: absolute;
     top: 50%;
@@ -254,6 +270,39 @@
   .case-icon-btn:hover { background: rgba(0,0,0,0.08); }
   .case-icon-btn.edit:hover { color: var(--accent); }
   .case-icon-btn.delete:hover { color: #c0392b; }
+
+  .status-picker {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding-right: 4px;
+    margin-right: 2px;
+    border-right: 1px solid rgba(0,0,0,0.1);
+  }
+  .status-dot-btn {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    padding: 0;
+    cursor: pointer;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 9px;
+    line-height: 1;
+  }
+  .status-dot-btn.stalled { background: var(--stalled); }
+  .status-dot-btn.on-track { background: var(--ontrack); }
+  .status-dot-btn.completed { background: var(--completed); }
+  .status-dot-btn.active {
+    border-color: var(--panel);
+    box-shadow: 0 0 0 1.5px var(--text);
+  }
+  .status-dot-btn:hover { transform: scale(1.15); }
   .case-status-dot {
     position: absolute;
     top: 4px;
@@ -261,9 +310,11 @@
     width: 3px;
     height: calc(100% - 8px);
     border-radius: 3px;
-    background: var(--pending);
+    background: var(--border);
   }
-  .case-card.completed .case-status-dot { background: var(--completed); }
+  .case-card.status-stalled .case-status-dot { background: var(--stalled); }
+  .case-card.status-on-track .case-status-dot { background: var(--ontrack); }
+  .case-card.status-completed .case-status-dot { background: var(--completed); }
 
   .case-card.editing {
     cursor: default;
@@ -381,7 +432,8 @@
     height: 10px;
     border-radius: 3px;
   }
-  .legend-swatch.pending { background: var(--pending); }
+  .legend-swatch.stalled { background: var(--stalled); }
+  .legend-swatch.on-track { background: var(--ontrack); }
   .legend-swatch.completed { background: var(--completed); }
 
   @media (max-width: 640px) {
@@ -396,7 +448,8 @@
   <div class="page-inner">
     <h1>Weekly Case Timeline</h1>
     <div class="legend">
-      <div class="legend-item"><span class="legend-swatch pending"></span>Pending</div>
+      <div class="legend-item"><span class="legend-swatch stalled"></span>Stalled</div>
+      <div class="legend-item"><span class="legend-swatch on-track"></span>On Track</div>
       <div class="legend-item"><span class="legend-swatch completed"></span>Completed</div>
     </div>
     <div class="header-controls">
@@ -429,6 +482,12 @@
   var INITIAL_BACK = 10;
   var INITIAL_FWD = 14;
   var LOAD_MORE = 8;
+  var STATUSES = [
+    { value: "stalled", label: "Stalled" },
+    { value: "on-track", label: "On Track" },
+    { value: "completed", label: "Completed" }
+  ];
+  var VALID_STATUSES = STATUSES.map(function (s) { return s.value; });
 
   var timeline = document.getElementById("timeline");
   var prevBtn = document.getElementById("prevBtn");
@@ -441,12 +500,23 @@
   var dragged = { weekKey: null, id: null };
 
   function loadData() {
+    var parsed;
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
+      parsed = raw ? JSON.parse(raw) : {};
     } catch (e) {
       return {};
     }
+    // Migrate the old two-state model (pending/completed) to the new
+    // three-state one: pending -> on-track, anything unrecognized -> on-track.
+    Object.keys(parsed).forEach(function (weekKey) {
+      (parsed[weekKey] || []).forEach(function (c) {
+        if (VALID_STATUSES.indexOf(c.status) === -1) {
+          c.status = "on-track";
+        }
+      });
+    });
+    return parsed;
   }
 
   function saveData() {
@@ -521,9 +591,9 @@
 
   function buildCaseCard(weekKey, caseObj) {
     var card = document.createElement("div");
-    card.className = "case-card" + (caseObj.status === "completed" ? " completed" : "");
+    card.className = "case-card status-" + caseObj.status;
     card.tabIndex = 0;
-    card.title = "Click to toggle status · hover for edit/delete · drag to move to another week";
+    card.title = "Hover for status/edit/delete · drag to move to another week";
     card.draggable = true;
 
     var dot = document.createElement("div");
@@ -546,6 +616,22 @@
     var actions = document.createElement("div");
     actions.className = "case-actions";
 
+    var statusPicker = document.createElement("div");
+    statusPicker.className = "status-picker";
+    STATUSES.forEach(function (s) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "status-dot-btn " + s.value + (caseObj.status === s.value ? " active" : "");
+      btn.title = s.label;
+      btn.setAttribute("aria-label", s.label);
+      if (caseObj.status === s.value) btn.innerHTML = "&#10003;";
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setStatus(weekKey, caseObj.id, s.value);
+      });
+      statusPicker.appendChild(btn);
+    });
+
     var editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "case-icon-btn edit";
@@ -558,6 +644,7 @@
     delBtn.innerHTML = "&times;";
     delBtn.title = "Delete case";
 
+    actions.appendChild(statusPicker);
     actions.appendChild(editBtn);
     actions.appendChild(delBtn);
     right.appendChild(fee);
@@ -603,11 +690,8 @@
     card.appendChild(content);
     card.appendChild(editForm);
 
-    var editing = false;
-
     function enterEdit(e) {
       e.stopPropagation();
-      editing = true;
       card.draggable = false;
       card.classList.add("editing");
       nameInput.value = caseObj.name;
@@ -616,7 +700,6 @@
       nameInput.select();
     }
     function exitEdit() {
-      editing = false;
       card.draggable = true;
       card.classList.remove("editing");
     }
@@ -654,11 +737,6 @@
       if (e.key === "Escape") exitEdit();
     });
 
-    card.addEventListener("click", function () {
-      if (editing) return;
-      toggleStatus(weekKey, caseObj.id);
-    });
-
     card.addEventListener("dragstart", function (e) {
       dragged.weekKey = weekKey;
       dragged.id = caseObj.id;
@@ -678,12 +756,12 @@
     return card;
   }
 
-  function toggleStatus(weekKey, id) {
+  function setStatus(weekKey, id, status) {
     var list = data[weekKey];
     if (!list) return;
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === id) {
-        list[i].status = list[i].status === "completed" ? "pending" : "completed";
+        list[i].status = status;
         break;
       }
     }
@@ -701,7 +779,7 @@
 
   function addCase(weekKey, name, fee) {
     if (!data[weekKey]) data[weekKey] = [];
-    data[weekKey].push({ id: uid(), name: name, fee: fee, status: "pending" });
+    data[weekKey].push({ id: uid(), name: name, fee: fee, status: "on-track" });
     saveData();
     renderWeekColumn(weekKey);
   }
